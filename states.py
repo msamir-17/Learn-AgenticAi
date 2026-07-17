@@ -39,3 +39,13 @@ class state:
     topic : str = ""
     summary : str = ""
     score : list = field(default_factory=list)
+
+
+from langgraph.graph import MessageState
+
+class State(MessageState):
+    # message field is already included with add_messages reducer
+    # just add your extra field
+
+    user_name: str
+    language: str
