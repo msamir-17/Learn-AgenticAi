@@ -51,3 +51,33 @@
 #     2. Answer the question using the fee PDF (using RAG)
 #     3. Answer General question based on the LLMsown Knowledge
 # And every conditional paths response converges to a single node 
+
+
+import os
+from typing import TypedDict, Annotated
+from langgraph.graph.message import add_message
+from langgraph.graph import StateGraph , START , END
+from langchain_groq import ChatGroq
+from langchain_community.document_loaders import PyPDFLoader
+from langchain_text_splitters import RecursiveCharacterTextSplitter
+from langchain_huggingface import HuggingFaceEmbeddings
+from langchain_community.vectorstores import FAISS
+from dotenv import load_dotenv
+
+load_dotenv()
+
+embeddings = HuggingFaceEmbeddings(model_name = "")
+
+def build_retriver(pdf_path : str):
+    loader = PyPDFLoader(pdf_path)
+    document = loader.load()
+
+    splitter = RecursiveCharacterTextSplitter(chunk_size = 800,chunk_overlab =100 )
+
+
+    chunks = splitter.split_documents(document)
+
+    vectorstore = FAISS.from_documents(chunks,embeddings)
+
+    return vectorstore.as_retriver(search_kwargs = {"k":4})
+
