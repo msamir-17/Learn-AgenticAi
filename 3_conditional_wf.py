@@ -179,6 +179,14 @@ def response_node(state: State) -> dict:
     # LangGraph's add_messages will append this new AI message to the chat history.
     return {"messages": [("AI",response.content.strip())]}
 
+# step 4 - RouterFunction
 
+def route_query(state:State):
+    if state['query_type']  == 'academic':
+        return "academic_rag"
+    elif state['query_type']  == 'fee':
+        return "fee_rag"
+    else:
+        return "general"
 
 
