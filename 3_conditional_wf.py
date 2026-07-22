@@ -55,7 +55,7 @@
 
 import os
 from typing import TypedDict, Annotated
-from langgraph.graph.message import add_message
+from langgraph.graph.message import add_messages
 from langgraph.graph import StateGraph , START , END
 from langchain_groq import ChatGroq
 from langchain_community.document_loaders import PyPDFLoader
@@ -66,13 +66,15 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
+
+# building RAG System
 embeddings = HuggingFaceEmbeddings(model_name = "")
 
 def build_retriver(pdf_path : str):
     loader = PyPDFLoader(pdf_path)
     document = loader.load()
 
-    splitter = RecursiveCharacterTextSplitter(chunk_size = 800,chunk_overlab =100 )
+    splitter = RecursiveCharacterTextSplitter(chunk_size = 800,chunk_overlab = 100 )
 
 
     chunks = splitter.split_documents(document)
@@ -80,4 +82,103 @@ def build_retriver(pdf_path : str):
     vectorstore = FAISS.from_documents(chunks,embeddings)
 
     return vectorstore.as_retriver(search_kwargs = {"k":4})
+
+academic_retriever = build_retriver("academics_handbook.pdf")
+fee_retriever = build_retriver("fee_structure.pdf")
+
+
+
+llm = ChatGroq(model="llama-3.3-70b-versatile", temperature=0.3)
+
+# Step 2 : Creating State
+class State(TypedDict):
+    program : str  # branch 
+    messages : Annotated[list,add_messages] # messages 
+    query_type : str # academic , fee , general (types of query )
+    retrieved_context : str # targeted retived 
+
+# step 3 - Nodes Generations
+def classifier_node(state : State) -> dict:
+    """Look At the latest user message and Decide which path to take"""
+
+    last_message = state['messages'][-1].content  
+
+    prompt = (
+        "Classify the following student query into exactly one category: "
+        "'academic', 'fee', or 'general'.\n\n"
+        "Use 'academic' for questions about attendance, exams, grading, credits, "
+        "promotion, course structure, summer training, or degree requirements.\n"
+        "Use 'fee' for questions about tuition, payment, refund, late charges, "
+        "scholarships, or any money-related topic.\n"
+        "Use 'general' for greetings, casual talk, or anything not related to "
+        "the college rules or fee.\n\n"
+        f"Query: {last_message}\n\n"
+        "Return only one word: academic, fee, or general."
+    )  
+
+    # ai decide the rule
+    response = llm.invoke(prompt)
+    category = response.content.strip().lower() 
+
+    if "academic" in category:
+        category = "academic"
+    elif"fee" in category:
+        category= " fee"
+    else:
+        category = "general"
+
+    return {"query_type" : category }
+
+def academic_rag_node(state: State) -> str:
+    """Determines which path to execute next based on classification."""
+    query = state["messages"][-1].content
+    docs = academic_retriever.invoke(query)
+    context = "\n\n".join([doc.page_content for doc in docs])
+    return {"retrieved_context": context}
+
+def academic_rag_node(state: State) -> str:
+    """Determines which path to execute next based on classification."""
+    query = state["messages"][-1].content
+    docs = fee_retriever.invoke(query)
+    context = "\n\n".join([doc.page_content for doc in docs])
+    return {"retrieved_context": context}
+
+def general_node(state: State) -> dict:
+    """Answer directly using the llm own knowledge, no retrieval needed."""
+    return {"retrieved_context" : "NO_RETRIEVAL_NEEDED"}
+
+
+def response_node(state: State) -> dict:
+    """Generates the final answer, personalized using the student's programme."""
+    query = state["messages"][-1].content
+    
+    # Safely checks for 'programme' or falls back to 'program' if spelled differently in State
+    programme = state.get("programme", state.get("program", "Unknown"))
+    context = state.get("retrieved_context", "NO_RETRIEVAL_NEEDED")
+
+    if context == "NO_RETRIEVAL_NEEDED":
+        prompt = (
+            f"You are a friendly college assistant talking to a {programme} student. "
+            f"Answer this question using your own general knowledge:\n\n{query}"
+        )
+    else:
+        prompt = (
+            f"You are a college assistant helping a {programme} student.\n"
+            f"Use the following context from the official college documents to answer "
+            f"the question accurately. If the context mentions specific details for "
+            f"different programmes, highlight the one relevant to {programme}. if posible\n\n"
+            f"Context:\n{context}\n\n"
+            f"Question:\n{query}"
+            f"give a clear, friendly, and precise answer"
+        )
+
+    # Invoke the LLM to generate the personalized response
+    response = llm.invoke(prompt)
+    
+    # Return the updated state. 
+    # LangGraph's add_messages will append this new AI message to the chat history.
+    return {"messages": [("AI",response.content.strip())]}
+
+
+
 
