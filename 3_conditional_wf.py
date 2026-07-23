@@ -68,20 +68,20 @@ load_dotenv()
 
 
 # building RAG System
-embeddings = HuggingFaceEmbeddings(model_name = "")
+embeddings = HuggingFaceEmbeddings(model_name = "sentence-transformers/all-MiniLM-L6-v2")
 
 def build_retriver(pdf_path : str):
     loader = PyPDFLoader(pdf_path)
     document = loader.load()
 
-    splitter = RecursiveCharacterTextSplitter(chunk_size = 800,chunk_overlab = 100 )
+    splitter = RecursiveCharacterTextSplitter(chunk_size = 800,chunk_overlap = 100 )
 
 
     chunks = splitter.split_documents(document)
 
     vectorstore = FAISS.from_documents(chunks,embeddings)
 
-    return vectorstore.as_retriver(search_kwargs = {"k":4})
+    return vectorstore.as_retriever(search_kwargs = {"k":4})
 
 academic_retriever = build_retriver("academics_handbook.pdf")
 fee_retriever = build_retriver("fee_structure.pdf")
@@ -92,7 +92,7 @@ llm = ChatGroq(model="llama-3.3-70b-versatile", temperature=0.3)
 
 # Step 2 : Creating State
 class State(TypedDict):
-    program : str  # branch 
+    programme : str  # branch 
     messages : Annotated[list,add_messages] # messages 
     query_type : str # academic , fee , general (types of query )
     retrieved_context : str # targeted retived 
@@ -177,7 +177,7 @@ def response_node(state: State) -> dict:
     
     # Return the updated state. 
     # LangGraph's add_messages will append this new AI message to the chat history.
-    return {"messages": [("AI",response.content.strip())]}
+    return {"messages": [("ai",response.content.strip())]}
 
 # step 4 - RouterFunction
 
@@ -212,4 +212,33 @@ graph.add_edge("fee_rag","response")
 graph.add_edge("general","response")
 
 graph.add_edge("response",END)
+app = graph.compile()
 
+
+print("Welcome to Clg Assistent ")
+print("1. BCA")
+print("2. BBA")
+print("3. B.COM")
+
+choice = input("\nEnter 1, 2 or 3 : ")
+
+programme_map = {
+    "1" : "BCA",
+    "2" : "BBA",
+    "3" : "B.COM"
+}
+
+student_programme = programme_map.get(choice , "BCA")
+
+print(f"\n Great! You set as a {student_programme} student")
+
+while True:
+    user_query = input("You: ")
+    if user_query.lower() in ["exit","quit"]:
+        break
+    result = app.invoke({
+        "programme" : student_programme,
+        "messages" : [("human",user_query)]
+    })
+
+    print(f"Assistant : {result['messages'][-1].content}")
